@@ -16,7 +16,6 @@ try:
 except ImportError as exc:
     raise SystemExit("Missing dependency 'ollama'. Install with: pip install ollama") from exc
 
-OLLAMA_HOST = "http://localhost:11434"
 MODEL = "qwen3.5:2b"
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_DIR.parent.parent
@@ -110,15 +109,13 @@ def ask_ollama(prompt: str, model: str, temperature: float, client: Client | Non
             response = chat(
                 model,
                 messages=messages,
-                options={"temperature": temperature},
-                think=True,
+                options={"temperature": temperature, "num_predict": 8192, "num_ctx": 16384},
             )
         else:
             response = client.chat(
                 model,
                 messages=messages,
-                options={"temperature": temperature},
-                think=True,
+                options={"temperature": temperature, "num_predict": 8192, "num_ctx": 16384},
             )
     except ResponseError as exc:
         if exc.status_code == 404:
@@ -136,22 +133,33 @@ def ask_ollama(prompt: str, model: str, temperature: float, client: Client | Non
     thinking_text = (getattr(message, "thinking", None) or "").strip()
     final_text = (getattr(message, "content", None) or "").strip()
     if not final_text:
-        raise RuntimeError(
-            f"Unexpected Ollama response: empty final content (thinking_len={len(thinking_text)})"
-        )
+        if thinking_text:
+            print(f"Warning: Empty final content, falling back to thinking_text (len={len(thinking_text)})", file=sys.stderr)
+            final_text = thinking_text
+        else:
+            raise RuntimeError(
+                f"Unexpected Ollama response: empty final content (thinking_len={len(thinking_text)})"
+            )
     return final_text
 
 
-def extract_python_code(raw_response: str) -> str:
-    text = raw_response.replace("\r\n", "\n")
-    blocks = re.findall(r"```(?:python|py)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
-    if blocks:
-        candidate = "\n\n".join(block.strip() for block in blocks if block.strip())
-    else:
-        candidate = re.sub(r"^.*?(?=(?:from\s+\w+\s+import|import\s+\w+|X_train\s*=|if\s+__name__\s*==))", "", text, flags=re.DOTALL)
-    candidate = re.sub(r"^```.*$", "", candidate, flags=re.MULTILINE).strip()
-    return candidate
+def extract_json_hyperparams(raw_response: str) -> str:
+    text = raw_response.replace('
 
+', '
+')
+    blocks = re.findall(r'`(?:json)?
+(.*?)(?:`|$)', text, flags=re.IGNORECASE | re.DOTALL)
+    if blocks:
+        longest_block = max(blocks, key=len)
+        candidate = longest_block.strip()
+    else:
+        match = re.search(r'\{.*\}', text, flags=re.DOTALL)
+        if match:
+            candidate = match.group(0).strip()
+        else:
+            candidate = '{}'
+    return candidate
 
 def run_experiment(python_exe: str) -> tuple[int, str, str]:
     result = subprocess.run([python_exe, str(TARGET_FILE)], capture_output=True, text=True, cwd=DATA_DIR)
@@ -168,13 +176,14 @@ def parse_rmse(stdout: str) -> float | None:
 def generation_prompt(current_code: str, best_history: str) -> str:
     return f"""
 You are optimizing a Kaggle training script.
+
 Rules:
-1) Return only valid Python source code for an entire train.py file.
-2) Keep the script lightweight and focused on improving validation RMSE.
-3) The script must print exactly one line: val_rmse: <number>
-4) It must load X_train.npy, y_train.npy, X_val.npy, y_val.npy from disk.
-5) Prioritize small, targeted model and hyperparameter changes.
-6) Do not wrap the code in markdown fences.
+1) Return ONLY valid Python source code. Do NOT include <think> tags, explanations, or any text other than the Python code itself. 
+2) Begin directly with code. 
+3) Keep the script lightweight and focused on improving validation RMSE.
+4) The script must print exactly one line: val_rmse: <number>
+5) It must load X_train.npy, y_train.npy, X_val.npy, y_val.npy from disk.
+6) Prioritize small, targeted model and hyperparameter changes.
 
 Top 5 historical best runs:
 {best_history}
@@ -187,7 +196,9 @@ Current train.py:
 def repair_prompt(stderr: str, broken_code: str) -> str:
     return f"""
 Your previous train.py crashed.
-Return only a fully corrected train.py as plain Python code.
+Return ONLY a fully corrected train.py as plain Python code.
+Do NOT include <think> tags or explanations. 
+
 The script must print exactly one line: val_rmse: <number>
 
 Crash stderr:
@@ -204,7 +215,7 @@ def run_loop(iterations: int, temperature: float, model: str, python_exe: str, p
     if not DATA_DIR.exists():
         raise FileNotFoundError(f"Missing data directory: {DATA_DIR}")
 
-    client = None if ollama_host == OLLAMA_HOST else Client(host=ollama_host)
+    client = Client(host=ollama_host) if ollama_host else None
     ensure_results_header()
     BACKUP_FILE.parent.mkdir(parents=True, exist_ok=True)
     best_score = load_best_score()
@@ -297,7 +308,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=0, help="0 means run forever")
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--model", type=str, default=MODEL)
-    parser.add_argument("--ollama-host", type=str, default=OLLAMA_HOST)
+    parser.add_argument("--ollama-host", type=str, default="")
     parser.add_argument("--python-exe", type=str, default=sys.executable)
     parser.add_argument("--pause", type=float, default=0.0, help="seconds between iterations")
     return parser.parse_args()
