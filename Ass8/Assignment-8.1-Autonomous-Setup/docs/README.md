@@ -20,9 +20,11 @@ python Ass8/Assignment-8.1-Autonomous-Setup/scripts/prepare.py
 ## 2. Check Baseline (Optional)
 Make sure the base training script runs successfully:
 ```powershell
-python Ass8/Assignment-8.1-Autonomous-Setup/src/autonomous_agent/train.py
+Push-Location Ass8/Assignment-8.1-Autonomous-Setup/data/prepared
+python ../../src/autonomous_agent/train.py
+Pop-Location
 ```
-*(Expected output: `val_rmse: <number>`)*
+*(Expected output: one JSON line, e.g. `{"status":"ok","score":<number>,...}`)*
 
 ## 3. Run the Autonomous Agent
 This will run the agent for 2 iterations to test the loop:
@@ -51,6 +53,7 @@ python -m unittest discover -s Ass8/Assignment-8.1-Autonomous-Setup/tests -p "te
 
 ### Failure handling and guardrails
 - Crashes trigger self-healing prompts up to 3 attempts.
-- If all repairs fail, `train.py` is reverted to last known good copy.
-- The agent only keeps changes that improve the best RMSE score.
+- Training runs have a strict timeout (`--train-timeout`, default 60s).
+- Oversized or invalid switchboard JSON candidates are rejected before training.
+- The agent only keeps candidates that improve the best RMSE score.
 
