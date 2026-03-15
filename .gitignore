@@ -14,3 +14,10 @@ Ass5/*.pt.trace.json
 
 # Optional local secrets and machine-specific files
 Ass8/kaggle.json
+
+# Ass8 autonomous generated artifacts
+Ass8/Assignment-8.1-Autonomous-Setup/data/prepared/*.npy
+Ass8/Assignment-8.1-Autonomous-Setup/data/prepared/dataset_metadata.json
+Ass8/Assignment-8.1-Autonomous-Setup/outputs/results.tsv
+Ass8/Assignment-8.1-Autonomous-Setup/outputs/train_backup.py
+Ass8/Assignment-8.1-Autonomous-Setup/outputs/agent_run.log
