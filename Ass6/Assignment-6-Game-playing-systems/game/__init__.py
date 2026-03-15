@@ -1,0 +1,1 @@
+# This file makes a package for the game folder. Can be empty
